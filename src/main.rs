@@ -5,10 +5,12 @@ const TEST_DATA: &'static str = include_str!("../test");
 trait VdaParser<T> = Parser<char, T, Error = Simple<char>>;
 
 fn main() {
+    //let test = "123456789";
     let result = parser().parse(TEST_DATA);
+    //let result = ignore_n(9).then(end()).parse(test);
     match result {
-        Ok(parsed) => println!("{:?}", parsed),
-        Err(err) => println!("{:?}", err),
+        Ok(parsed) => println!("parsed {:?}", parsed),
+        Err(err) => err.iter().for_each(|e| println!("{:?}", e)),
     }
 }
 
@@ -39,13 +41,14 @@ fn parser() -> impl VdaParser<Vda> {
         .then(
             parse_513()
                 // 513 - 512 - 513 chains
-                .then_ignore(parse_512().then(parse_513()).repeated())
+                //.then_ignore(parse_512().then(parse_513()).repeated())
                 .chain(abruf_chain()),
         )
         .then_ignore(parse_515().or_not())
         .then_ignore(parse_517().or_not())
         .then_ignore(parse_518().or_not())
         .then_ignore(parse_519())
+        .then_ignore(end())
         .map(|((r511, r512), abrufe)| Vda {
             kunde: r511.kunde,
             lieferant: r511.lieferant,
@@ -58,8 +61,7 @@ fn parser() -> impl VdaParser<Vda> {
             rueckstandmenge: String::from("TODO"),
             sofortbedarf: String::from("TODO"),
             abrufe,
-        });
-    todo()
+        })
 }
 
 struct Result511 {
@@ -72,7 +74,7 @@ fn parse_511() -> impl VdaParser<Result511> {
         .ignore_then(n_alphanums(9))
         .then(n_alphanums(9))
         .map(|(kunde, lieferant)| Result511 { kunde, lieferant })
-        .then_ignore(text::whitespace().repeated().exactly(83))
+        .then_ignore(ignore_n(83))
 }
 
 struct Result512 {
@@ -118,24 +120,20 @@ fn parse_512() -> impl VdaParser<Result512> {
 
 fn parse_513() -> impl VdaParser<Vec<Abruf>> {
     header(513)
-        .then_ignore(any().repeated().exactly(43))
-        .ignore_then(abruf())
-        .repeated()
-        .exactly(5)
-        .then_ignore(any().repeated().exactly(6))
+        .then_ignore(ignore_n(43))
+        .ignore_then(abruf().repeated().exactly(5))
+        .then_ignore(ignore_n(6))
 }
 
 fn parse_514() -> impl VdaParser<Vec<Abruf>> {
     header(514)
-        .ignore_then(abruf())
-        .repeated()
-        .exactly(8)
-        .then_ignore(any().repeated().exactly(2))
+        .ignore_then(abruf().repeated().exactly(8))
+        .then_ignore(ignore_n(2))
 }
 
 fn parse_515() -> impl VdaParser<()> {
     header(515)
-        .then_ignore(any().repeated().exactly(123))
+        .then_ignore(ignore_n(123))
         .then(parse_517().or_not())
         .ignored()
 }
@@ -143,7 +141,7 @@ fn parse_515() -> impl VdaParser<()> {
 fn parse_517() -> impl VdaParser<()> {
     recursive(|parser| {
         header(517)
-            .then_ignore(any().repeated().exactly(123))
+            .then_ignore(ignore_n(123))
             .then(parser.or(parse_518()))
             .ignored()
     })
@@ -151,20 +149,19 @@ fn parse_517() -> impl VdaParser<()> {
 
 fn parse_518() -> impl VdaParser<()> {
     header(518)
-        .then_ignore(any().repeated().exactly(123))
+        .then_ignore(ignore_n(123))
         .then(parse_512())
         .then(parse_513())
         .ignored()
 }
 
 fn parse_519() -> impl VdaParser<()> {
-    header(519)
-        .then_ignore(any().repeated().exactly(123))
-        .ignored()
+    header(519).then_ignore(ignore_n(123)).ignored()
 }
 
 fn header(code: u32) -> impl VdaParser<()> {
     just(code.to_string())
+        .labelled("header")
         .then_ignore(counted_number(2))
         .map(|_| ())
 }
@@ -176,35 +173,34 @@ fn abruf() -> impl VdaParser<Abruf> {
 }
 
 fn abruf_chain() -> impl VdaParser<Vec<Abruf>> {
-    parse_514()
-        .then_ignore(parse_515().or_not())
-        .repeated()
-        .map(|vs| vs.into_iter().flatten().collect())
+    parse_514().then_ignore(parse_515().or_not())
+    //.repeated()
+    //.map(|vs| vs.into_iter().flatten().collect())
 }
 
 fn ignore_51213() -> impl VdaParser<()> {
     parse_512().then(parse_513()).ignored()
 }
 
+fn ignore_n(n: usize) -> impl VdaParser<()> {
+    any().repeated().exactly(n).ignored()
+}
+
 fn n_alphanums(n: usize) -> impl VdaParser<String> {
-    filter::<_, _, Simple<char>>(|c| char::is_alphanumeric(*c))
-        .repeated()
-        .exactly(n)
-        .collect::<String>()
+    filter::<_, _, Simple<char>>(|c| char::is_ascii(c))
+        .labelled("n alphanums")
+        //.repeated()
+        //.exactly(n)
+        //.collect::<String>()
+        .map(|c| String::from(c))
 }
 
 fn counted_number(n: usize) -> impl VdaParser<u32> {
     filter::<_, _, Simple<char>>(char::is_ascii_digit)
-        .repeated()
-        .exactly(n)
-        .collect::<String>()
-        .try_map(|s, span| s.parse().map_err(|e| Simple::custom(span, e)))
-}
-
-fn limited_number(n: usize) -> impl VdaParser<u32> {
-    filter::<_, _, Simple<char>>(char::is_ascii)
-        .repeated()
-        .exactly(n)
-        .map(|s| s.iter().skip_while(|c| **c == ' ').collect::<String>())
-        .try_map(|s, span| s.parse().map_err(|e| Simple::custom(span, e)))
+        .labelled("counted number")
+        //.repeated()
+        //.exactly(n)
+        //.collect::<String>()
+        //.try_map(|s, span| s.parse().map_err(|e| Simple::custom(span, e)))
+        .to(1)
 }

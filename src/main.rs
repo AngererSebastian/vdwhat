@@ -1,5 +1,4 @@
 #![feature(trait_alias)]
-use ariadne::{Label, Report, ReportKind, Source};
 use chumsky::prelude::*;
 
 const TEST_DATA: &'static str = include_str!("../test");
@@ -12,18 +11,13 @@ fn main() {
     match result {
         Ok(parsed) => println!("parsed {:?}", parsed),
         Err(err) => err.iter().for_each(|e| {
-            /*Report::build::<()>(ReportKind::Error, (), e.span().start)
-            .with_message::<String>(format!("{:?}", e.reason()))
-            .with_label(Label::new(e.span()))
-            .finish()
-            .print(Source::from(TEST_DATA))
-            .unwrap();*/
             println!("{:?}", e);
         }),
     };
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Vda {
     kunde: String,
     lieferant: String,
@@ -39,6 +33,7 @@ struct Vda {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Abruf {
     date: u64,
     amount: u64,

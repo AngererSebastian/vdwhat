@@ -6,161 +6,101 @@ trait VdaParser<T> = Parser<char, T, Error = Simple<char>>;
 
 fn main() {
     //let test = "123456789";
-    let result = parser().parse(TEST_DATA);
+    //let result = parser().parse(TEST_DATA);
     //let result = ignore_n(9).then(end()).parse(test);
-    match result {
+    /*match result {
         Ok(parsed) => println!("parsed {:?}", parsed),
         Err(err) => err.iter().for_each(|e| {
             println!("{:?}", e);
         }),
-    };
+    };*/
+    println!("{:#?}", parse(TEST_DATA))
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
-struct Vda {
-    kunde: String,
-    lieferant: String,
-    werk: String,
-    abladestelle: String,
+struct Vda<'a> {
+    kunde: &'a str,
+    lieferant: &'a str,
+    werk: &'a str,
+    abladestelle: &'a str,
     lieferabruf_alt: u64,
     lieferabruf_neu: u64,
-    sachnummer: String,
-    mengeeinheit: String,
-    rueckstandmenge: String,
-    sofortbedarf: String,
+    sachnummer: &'a str,
+    mengeeinheit: &'a str,
+    rueckstandmenge: &'a str,
+    sofortbedarf: &'a str,
     abrufe: Vec<Abruf>,
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
 struct Abruf {
-    date: u64,
-    amount: u64,
+    date: String,
+    amount: String,
 }
 
-fn parser() -> impl VdaParser<Vda> {
-    parse_511()
-        .then(parse_512())
-        .then(
-            parse_513()
-                // 513 - 512 - 513 chains
-                //.then_ignore(parse_512().then(parse_513()).repeated())
-                .chain(abruf_chain()),
-        )
-        .then_ignore(parse_515().or_not())
-        .then_ignore(parse_517().or_not())
-        .then_ignore(parse_518().or_not())
-        .then_ignore(parse_519())
-        .then_ignore(end())
-        .map(|((r511, r512), abrufe)| Vda {
-            kunde: r511.kunde,
-            lieferant: r511.lieferant,
-            werk: r512.werk_kunde,
-            abladestelle: r512.abladestelle,
-            lieferabruf_alt: r512.lieferabruf_alt,
-            lieferabruf_neu: r512.lieferabruf_neu,
-            sachnummer: r512.sachnummer_kunde,
-            mengeeinheit: r512.mengeneinheit,
-            rueckstandmenge: String::from("TODO"),
-            sofortbedarf: String::from("TODO"),
-            abrufe,
-        })
+fn parse(input: &'_ str) -> Vda<'_> {
+    let mut lines = input.lines();
+    let begin: &str = lines.next().unwrap();
+    
+    assert_eq!(&begin[0..3], "511");
+
+    let kunde= &begin[5..14];
+    let lieferant = &begin[14..23];
+
+    let snd = lines.next().unwrap();
+    
+    assert_eq!(&snd[0..3], "512");
+
+    let werk= &snd[5..8];
+    let lieferabruf_neu = to_number(&snd[8..17]);
+    let lieferabruf_alt = to_number(&snd[23..32]);
+    let sachnummer = &snd[38..60];
+    let abladestelle = &snd[94..99];
+    let mengeeinheit = &snd[103..105];
+
+    let abrufe = parse_abrufe(lines);
+
+    Vda {
+        kunde,
+        lieferant,
+        werk,
+        lieferabruf_neu,
+        lieferabruf_alt,
+        sachnummer,
+        abladestelle,
+        mengeeinheit,
+        rueckstandmenge: "todo",
+        sofortbedarf: "todo",
+        abrufe
+    }
 }
 
-struct Result511 {
-    kunde: String,
-    lieferant: String,
+fn parse_abrufe<'a, I: Iterator<Item = &'a str>>(inp: I) -> Vec<Abruf> {
+    inp.filter(|l| &l[0..3] == "513" || &l[0..3] == "514")
+        .map(|l| parse_513().or(parse_514()).parse(l))
+        .map(|r| r.unwrap())
+        .flatten()
+        .collect::<Vec<Abruf>>()
+
 }
 
-fn parse_511() -> impl VdaParser<Result511> {
-    header(511)
-        .ignore_then(n_alphanums(9))
-        .then(n_alphanums(9))
-        .map(|(kunde, lieferant)| Result511 { kunde, lieferant })
-        .then_ignore(ignore_n(106)) // + linefeed alway here
-}
-
-struct Result512 {
-    werk_kunde: String,
-    lieferabruf_neu: u64,
-    lieferabruf_alt: u64,
-    sachnummer_kunde: String,
-    abladestelle: String,
-    mengeneinheit: String,
-}
-
-fn parse_512() -> impl VdaParser<Result512> {
-    header(512)
-        .ignore_then(n_alphanums(3)) // werk kunde
-        .then(counted_number(9)) // liefer abruf neu
-        .then_ignore(counted_number(6)) // lieferdatum neu
-        .then(counted_number(9)) // liefer abruf alt
-        .then_ignore(counted_number(6)) // lieferdatum alt
-        .then(n_alphanums(22)) // sachnummer kunde
-        .then_ignore(n_alphanums(22)) // sachnummer lieferant
-        .then_ignore(counted_number(10)) // bestellnummer
-        .then(n_alphanums(5)) //abladestelle
-        .then_ignore(n_alphanums(4)) // zeichen kunde
-        .then(n_alphanums(2)) // mengeneinheit
-        .then_ignore(n_alphanums(26)) // + linefeed
-        .map(
-            |(
-                (
-                    (((werk_kunde, lieferabruf_neu), lieferabruf_alt), sachnummer_kunde),
-                    abladestelle,
-                ),
-                mengeneinheit,
-            )| Result512 {
-                werk_kunde,
-                lieferabruf_neu,
-                lieferabruf_alt,
-                sachnummer_kunde,
-                abladestelle,
-                mengeneinheit,
-            },
-        )
+fn to_number(inp: &str) -> u64 {
+    inp.trim_end().parse().unwrap()
 }
 
 fn parse_513() -> impl VdaParser<Vec<Abruf>> {
     header(513)
         .then_ignore(ignore_n(43))
         .ignore_then(abruf().repeated().exactly(5))
-        .then_ignore(ignore_n(6)) // linefeed
+        .then_ignore(ignore_n(5)) 
 }
 
 fn parse_514() -> impl VdaParser<Vec<Abruf>> {
     header(514)
         .ignore_then(abruf().repeated().exactly(8))
-        .then_ignore(ignore_n(4)) // linefeed
-}
-
-fn parse_515() -> impl VdaParser<()> {
-    header(515)
-        .then_ignore(ignore_n(124)) // linefeed
-        .then(parse_517().or_not())
-        .ignored()
-}
-
-fn parse_517() -> impl VdaParser<()> {
-    recursive(|parser| {
-        header(517)
-            .then_ignore(ignore_n(124)) // linefeed
-            .then(parser.or(parse_518()))
-            .ignored()
-    })
-}
-
-fn parse_518() -> impl VdaParser<()> {
-    header(518)
-        .then_ignore(ignore_n(124)) // linefeed
-        .then(parse_512())
-        .then(parse_513())
-        .ignored()
-}
-
-fn parse_519() -> impl VdaParser<()> {
-    header(519).then_ignore(ignore_n(124)).ignored()
+        .then_ignore(ignore_n(3)) 
 }
 
 fn header(code: u64) -> impl VdaParser<()> {
@@ -171,16 +111,9 @@ fn header(code: u64) -> impl VdaParser<()> {
 }
 
 fn abruf() -> impl VdaParser<Abruf> {
-    counted_number(6)
-        .then(counted_number(9))
+    n_alphanums(6)
+        .then(n_alphanums(9))
         .map(|(date, amount)| Abruf { date, amount })
-}
-
-fn abruf_chain() -> impl VdaParser<Vec<Abruf>> {
-    parse_514()
-        .then_ignore(parse_515().or_not())
-        .repeated()
-        .map(|vs| vs.into_iter().flatten().collect())
 }
 
 fn ignore_n(n: usize) -> impl VdaParser<()> {
@@ -231,5 +164,21 @@ mod tests {
         let rslt = counted_number(5).parse(input);
 
         rslt.unwrap_err();
+    }
+    
+    #[test]
+    fn test_514() {
+        let input = "51401140605000003000140606000000000140627000000000140630000003000140722000003000140813000003000140814000000000140904000003000   \n";
+        let rslt = parse_514().then(end()).parse(input);
+
+        rslt.unwrap();
+    }
+
+    #[test]
+    fn test_514_2() {
+        let input = "51401140905000000000140926000003000140930000000000555555000000000141000000003000141100000006000141200000001559000000            \n";
+        let rslt = parse_514().then(end()).parse(input);
+
+        rslt.unwrap();
     }
 }
